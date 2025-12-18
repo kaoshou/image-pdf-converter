@@ -1,0 +1,6 @@
+# .gitignore 內容
+__pycache__/
+*.py[cod]
+dist/
+build/
+*.spec
