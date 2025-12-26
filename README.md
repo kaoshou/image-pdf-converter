@@ -40,6 +40,23 @@ pip install pymupdf tkinterdnd2
 
 ```
 
+## 📦 打包成單一執行檔
+
+如果您希望將此工具打包成單一 `.exe` 檔案以便在沒有 Python 的電腦上執行，建議可使用 **PyInstaller**。
+
+1.  **安裝 PyInstaller**：
+
+    ```bash
+    pip install pyinstaller
+    ```
+
+2.  **打包指令範例**：
+
+    ```bash
+    pyinstaller --noconsole --onefile --collect-all tkinterdnd2 --collect-all pymupdf ImageToPdfConverter.py
+    ```
+
+打包完成後，執行檔將位於 `dist` 資料夾中。
 
 
 ## 一般使用者下載
