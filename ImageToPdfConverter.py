@@ -10,7 +10,7 @@ import threading  # 用於非同步處理轉換，避免介面卡死
 import queue      # 用於執行緒間的安全通訊
 import re
 
-# 1. 跨平台動態字體偵測
+# 1. 跨平台動態字體偵測與大小補償
 def get_system_font():
     current_os = platform.system()
     if current_os == "Windows":
@@ -23,6 +23,8 @@ def get_system_font():
         return "Arial"
 
 SYSTEM_FONT = get_system_font()
+# macOS 字體補償值：macOS 渲染 10pt 會比 Windows 小，故補償 +2
+FONT_OFFSET = 2 if platform.system() == "Darwin" else 0
 
 try:
     if platform.system() == "Windows":
@@ -46,7 +48,9 @@ PAGE_SIZES = {
 }
 
 class PlaceholderEntry(tk.Entry):
-    def __init__(self, container, placeholder, is_password=False, *args, **kwargs):
+    def __init__(self, container, placeholder, is_password=False, *args, **kwargs):     
+        if 'font' not in kwargs:
+            kwargs['font'] = (SYSTEM_FONT, 10 + FONT_OFFSET)
         super().__init__(container, *args, **kwargs)
         self.placeholder = placeholder
         self.placeholder_color = '#aaaaaa'
@@ -93,15 +97,15 @@ class FilePasswordDialog(tk.Toplevel):
         self.grab_set()
         content = tk.Frame(self, bg="white", padx=30, pady=20)
         content.pack(fill=tk.BOTH, expand=True)
-        tk.Label(content, text="此 PDF 檔案受保護，請輸入開啟密碼：", font=(SYSTEM_FONT, 10), bg="white").pack(anchor="w")
-        tk.Label(content, text=filename, font=(SYSTEM_FONT, 10, "bold"), bg="white", fg="#0056b3", wraplength=400, justify="left").pack(anchor="w", pady=(5, 15))
-        self.entry = tk.Entry(content, font=(SYSTEM_FONT, 11), show="*", relief=tk.SOLID, borderwidth=1)
+        tk.Label(content, text="此 PDF 檔案受保護，請輸入開啟密碼：", font=(SYSTEM_FONT, 10 + FONT_OFFSET), bg="white").pack(anchor="w")
+        tk.Label(content, text=filename, font=(SYSTEM_FONT, 10 + FONT_OFFSET, "bold"), bg="white", fg="#0056b3", wraplength=400, justify="left").pack(anchor="w", pady=(5, 15))
+        self.entry = tk.Entry(content, font=(SYSTEM_FONT, 11 + FONT_OFFSET), show="*", relief=tk.SOLID, borderwidth=1)
         self.entry.pack(fill=tk.X, pady=5)
         self.entry.focus_set()
         btn_frame = tk.Frame(content, bg="white")
         btn_frame.pack(pady=10)
-        tk.Button(btn_frame, text="解鎖並加入", command=self.on_confirm, font=(SYSTEM_FONT, 10, "bold"), bg="#096dd9", fg="white", relief=tk.FLAT, padx=25, pady=5, cursor="hand2").pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="放棄此檔案", command=self.destroy, font=(SYSTEM_FONT, 10), bg="#f5f5f5", relief=tk.FLAT, padx=15, pady=5, cursor="hand2").pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="解鎖並加入", command=self.on_confirm, font=(SYSTEM_FONT, 10 + FONT_OFFSET, "bold"), bg="#096dd9", fg="white", relief=tk.FLAT, padx=25, pady=5, cursor="hand2").pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="放棄此檔案", command=self.destroy, font=(SYSTEM_FONT, 10 + FONT_OFFSET), bg="#f5f5f5", relief=tk.FLAT, padx=15, pady=5, cursor="hand2").pack(side=tk.LEFT, padx=5)
         self.bind("<Return>", lambda e: self.on_confirm())
 
     def on_confirm(self):
@@ -114,21 +118,33 @@ class ImageToPdfConverter:
         self.window_title = "圖片轉PDF小工具"
         self.root.title(f"{self.window_title} by Yu-Han Cheng")
         
-        # 智慧型視窗尺寸計算
+        # 智慧型視窗尺寸計算 - 針對 macOS 優化視窗尺寸避免過大
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         
+        # 理想尺寸進一步下修，使其在 macOS 的 Dock 與 Menu Bar 之間有更多空間
         base_width = 1150
-        base_height = 850
-        target_width = min(base_width, int(screen_width * 0.9))
-        target_height = min(base_height, int(screen_height * 0.88))
+        base_height = 850 
         
+        # macOS 可用高度通常較小（扣除選單與 Dock），故比例下修
+        height_factor = 0.78 if platform.system() == "Darwin" else 0.85
+        
+        target_width = min(base_width, int(screen_width * 0.9))
+        target_height = min(base_height, int(screen_height * height_factor))
+        
+        # 置中視窗
         x = (screen_width // 2) - (target_width // 2)
         y = (screen_height // 2) - (target_height // 2)
         
+        # 額外補償 macOS 的座標偏移
+        if platform.system() == "Darwin":
+            y = max(40, y - 20) # 往上偏移一點以避開 Dock
+            
         self.root.geometry(f"{target_width}x{target_height}+{x}+{y}")
         self.root.configure(bg="#f0f2f5")
-        self.root.minsize(980, 650)
+        
+        # 設定最小尺寸，確保 UI 功能不重疊
+        self.root.minsize(980, 600)
         
         self.file_list = []      
         self.pdf_passwords = {}  
@@ -147,11 +163,13 @@ class ImageToPdfConverter:
     def setup_styles(self):
         self.primary_color = "#0056b3"
         self.bg_light = "#ffffff"
-        self.font_title = (SYSTEM_FONT, 16, "bold")
-        self.font_header = (SYSTEM_FONT, 11, "bold")
-        self.font_main = (SYSTEM_FONT, 10)
-        self.font_status = (SYSTEM_FONT, 9)
-        self.font_btn_big = (SYSTEM_FONT, 14, "bold")
+        # 套用 FONT_OFFSET 補償 macOS 字體過小的問題
+        self.font_title = (SYSTEM_FONT, 16 + FONT_OFFSET, "bold")
+        self.font_header = (SYSTEM_FONT, 11 + FONT_OFFSET, "bold")
+        self.font_main = (SYSTEM_FONT, 10 + FONT_OFFSET)
+        self.font_status = (SYSTEM_FONT, 9 + FONT_OFFSET)
+        self.font_btn_big = (SYSTEM_FONT, 14 + FONT_OFFSET, "bold")
+        
         style = ttk.Style()
         style.theme_use("clam")
         style.configure("Treeview", font=self.font_main, rowheight=60, borderwidth=0)
@@ -224,7 +242,7 @@ class ImageToPdfConverter:
         qual_frame = tk.Frame(row2, bg="white")
         qual_frame.pack(side=tk.LEFT, padx=(2, 5))
         tk.Label(qual_frame, text="品質:", font=self.font_main, bg="white").pack(side=tk.LEFT)
-        self.quality_val_label = tk.Label(qual_frame, text="80%", font=(SYSTEM_FONT, 9, "bold"), bg="#f0f2f5", width=4)
+        self.quality_val_label = tk.Label(qual_frame, text="80%", font=(SYSTEM_FONT, 9 + FONT_OFFSET, "bold"), bg="#f0f2f5", width=4)
         self.quality_scale = tk.Scale(qual_frame, from_=10, to=100, orient=tk.HORIZONTAL, length=70, bg="white", highlightthickness=0, showvalue=0, command=self.update_quality_label)
         self.quality_scale.set(80); self.quality_scale.pack(side=tk.LEFT, padx=5); self.quality_val_label.pack(side=tk.LEFT); self.quality_scale.config(state=tk.DISABLED)
         tk.Frame(row2, bg="#eee", width=1).pack(side=tk.LEFT, fill=tk.Y, padx=12)
@@ -241,7 +259,6 @@ class ImageToPdfConverter:
         self.check_grayscale = tk.Checkbutton(row2, text="黑白模式", variable=self.grayscale_var, font=self.font_main, bg="white")
         self.check_grayscale.pack(side=tk.LEFT, padx=5)
         
-        # 新增：PDF 平面化勾選框，放置於黑白模式旁邊
         self.pdf_flatten_var = tk.BooleanVar(value=False)
         self.check_pdf_flatten = tk.Checkbutton(row2, text="PDF 平面化", variable=self.pdf_flatten_var, font=self.font_main, bg="white")
         self.check_pdf_flatten.pack(side=tk.LEFT, padx=5)
@@ -257,7 +274,7 @@ class ImageToPdfConverter:
 
         self.list_section_frame, list_title_bar = self.create_section(main_content, "待處理清單")
         self.list_section_frame.master.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=2)
-        self.file_count_label = tk.Label(list_title_bar, text="已選擇: 0 個項目", font=(SYSTEM_FONT, 9, "bold"), bg="#fafafa", fg=self.primary_color)
+        self.file_count_label = tk.Label(list_title_bar, text="已選擇: 0 個項目", font=(SYSTEM_FONT, 9 + FONT_OFFSET, "bold"), bg="#fafafa", fg=self.primary_color)
         self.file_count_label.pack(side=tk.LEFT, padx=(10, 0))
         
         list_main_container = tk.Frame(self.list_section_frame, bg="white", padx=15, pady=5)
@@ -476,7 +493,7 @@ class ImageToPdfConverter:
             "• Python Standard Library：採用 PSF License 授權。\n  網址：https://www.python.org/\n\n"
             "免責聲明：本軟體依「現狀」提供，開發者對於因使用本程式所產生的任何損失概不負責。"
         )
-        text_box = tk.Text(content, height=25, font=("Consolas", 9), bg="#f9f9f9", relief=tk.FLAT, wrap=tk.WORD, padx=12, pady=12)
+        text_box = tk.Text(content, height=25, font=("Consolas", 9 + FONT_OFFSET), bg="#f9f9f9", relief=tk.FLAT, wrap=tk.WORD, padx=12, pady=12)
         text_box.insert(tk.END, license_desc); text_box.config(state=tk.DISABLED); text_box.pack(fill=tk.X)
 
     def handle_drop(self, event):
@@ -572,29 +589,21 @@ class ImageToPdfConverter:
     def perform_conversion(self, save_path):
         """核心轉換邏輯，修正進度條計算方式為總頁數"""
         doc = fitz.open()
-        
-        # 1. 預先計算總頁數，用於進度條顯示
         total_pages = sum(item.get('page_count', 1) for item in self.file_list)
         processed_pages = 0
-        
         c, q = self.compress_var.get(), self.quality_scale.get()
         enc, opw = self.encrypt_var.get(), self.password_entry.get_real_value()
         gs, ar, sm = self.grayscale_var.get(), self.auto_rotate_var.get(), self.scale_mode_var.get()
         flatten = self.pdf_flatten_var.get() # PDF 平面化標誌
-        
         meta = {"title": self.meta_title.get_real_value(), "creator": self.window_title, "producer": "PyMuPDF"}
         base_size = PAGE_SIZES.get(self.page_size_var.get()); target_orient = self.orientation_var.get()
         HIGH_RES_DPI = 300 / 72 
-
         try:
             for item in self.file_list:
                 path = item['path']
-                
                 if not path.lower().endswith('.pdf'):
-                    # --- 圖片處理模式 ---
                     processed_pages += 1
                     self.root.after(0, lambda p=processed_pages: self.status_label.config(text=f"處理中 {p}/{total_pages}..."))
-                    
                     img_doc = fitz.open(path); img_page = img_doc[0]; img_rect = img_page.rect
                     if gs or c:
                         pix = img_page.get_pixmap(matrix=fitz.Matrix(HIGH_RES_DPI, HIGH_RES_DPI))
@@ -621,26 +630,21 @@ class ImageToPdfConverter:
                     img_doc.close()
                     self.root.after(0, lambda v=(processed_pages / total_pages) * 100: self.progress.configure(value=v))
                 else:
-                    # --- PDF 處理模式 ---
                     with fitz.open(path) as sub:
                         if sub.is_encrypted: sub.authenticate(self.pdf_passwords.get(path, ""))
                         from_p = item['page'] if item['page'] is not None else 0
                         to_p = item['page'] if item['page'] is not None else len(sub) - 1
-                        
                         for p_no in range(from_p, to_p + 1):
                             processed_pages += 1
                             self.root.after(0, lambda p=processed_pages: self.status_label.config(text=f"處理中 {p}/{total_pages}..."))
-                            
                             sp = sub[p_no]
                             if flatten:
-                                # 平面化：將頁面轉為高品質圖片後再嵌入
                                 pix = sp.get_pixmap(matrix=fitz.Matrix(HIGH_RES_DPI, HIGH_RES_DPI))
                                 if gs: pix = fitz.Pixmap(fitz.csGRAY, pix)
                                 if pix.alpha:
                                     new_pix = fitz.Pixmap(fitz.csRGB, pix.width, pix.height, 0)
                                     new_pix.clear_with(255); new_pix.copy(pix, pix.irect); pix = new_pix
                                 img_data = pix.tobytes("jpg", jpg_quality=q)
-                                
                                 if base_size:
                                     tw, th = base_size if target_orient == "直式" else (base_size[1], base_size[0])
                                     if ar and ((sp.rect.width > sp.rect.height) != (tw > th)): tw, th = th, tw
@@ -651,18 +655,14 @@ class ImageToPdfConverter:
                                     page.insert_image(page.rect, stream=img_data)
                                 pix = None
                             else:
-                                # 一般合併模式
                                 if base_size:
                                     tw, th = base_size if target_orient == "直式" else (base_size[1], base_size[0])
                                     lw, lh = (th, tw) if ar and ((sp.rect.width > sp.rect.height) != (tw > th)) else (tw, th)
                                     page = doc.new_page(width=lw, height=lh); rect = page.rect if sm == "自動填滿" else sp.rect
                                     page.show_pdf_page(rect, sub, sp.number)
                                 else:
-                                    # 保持原始頁面與資源 (使用 insert_pdf 逐頁插入以配合進度)
                                     doc.insert_pdf(sub, from_page=p_no, to_page=p_no)
-                            
                             self.root.after(0, lambda v=(processed_pages / total_pages) * 100: self.progress.configure(value=v))
-            
             doc.set_metadata(meta)
             if enc and opw: doc.save(save_path, garbage=4, deflate=True, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw=opw, owner_pw=opw)
             else: doc.save(save_path, garbage=4, deflate=True)
